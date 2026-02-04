@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Icon Generator</title>
+</head>
+<body>
+    <h1>Generating Icons...</h1>
+    <script>
+        function createIcon(size) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, size, size);
+            
+            // Draw background circle (Jira blue: #0052CC)
+            const margin = size / 10;
+            ctx.fillStyle = '#0052CC';
+            ctx.beginPath();
+            ctx.arc(size / 2, size / 2, size / 2 - margin, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw ticket (white rectangle)
+            const ticketMargin = size / 4;
+            const ticketWidth = size - 2 * ticketMargin;
+            const ticketHeight = size - 2 * ticketMargin;
+            
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(ticketMargin, ticketMargin, ticketWidth, ticketHeight);
+            
+            // Draw perforated edge (dots on left)
+            ctx.fillStyle = '#0052CC';
+            const dotSize = 2;
+            const dotSpacing = 4;
+            const numDots = Math.floor(ticketHeight / dotSpacing);
+            for (let i = 0; i < numDots; i++) {
+                const y = ticketMargin + i * dotSpacing;
+                if (y < ticketMargin + ticketHeight) {
+                    ctx.beginPath();
+                    ctx.arc(ticketMargin, y, dotSize, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            
+            // Draw lines on ticket (representing text)
+            ctx.fillStyle = '#C8C8C8';
+            const lineY = ticketMargin + ticketHeight / 3;
+            const lineWidth = ticketWidth - 2 * (size / 8);
+            ctx.fillRect(ticketMargin + size / 8, lineY, lineWidth, 2);
+            
+            const lineY2 = ticketMargin + ticketHeight / 2;
+            ctx.fillRect(ticketMargin + size / 8, lineY2, lineWidth * 0.7, 2);
+            
+            return canvas;
+        }
+        
+        function downloadIcon(size) {
+            const canvas = createIcon(size);
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `icon${size}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        }
+        
+        // Generate all icons
+        setTimeout(() => {
+            downloadIcon(16);
+            setTimeout(() => {
+                downloadIcon(48);
+                setTimeout(() => {
+                    downloadIcon(128);
+                    document.body.innerHTML = '<h1>Icons generated! Check your downloads folder.</h1>';
+                }, 500);
+            }, 500);
+        }, 500);
+    </script>
+</body>
+</html>
+
