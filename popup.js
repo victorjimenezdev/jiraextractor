@@ -242,6 +242,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Test button not found!');
   }
 
+  // Clear credentials
+  const clearCredentialsBtn = document.getElementById('clearCredentialsBtn');
+  if (clearCredentialsBtn) {
+    clearCredentialsBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        // Only clear credentials, keep Base URL as it's useful for both modes
+        await chrome.storage.sync.remove(['jiraEmail', 'jiraApiToken']);
+
+        emailInput.value = '';
+        tokenInput.value = '';
+
+        // Use settingsStatus if available
+        const statusDiv = settingsStatus || status;
+        statusDiv.className = 'status info';
+        statusDiv.textContent = 'Credentials cleared. Now using Browser Session mode.';
+        statusDiv.style.display = 'block';
+
+        setTimeout(() => {
+          statusDiv.style.display = 'none';
+        }, 3000);
+      } catch (error) {
+        console.error('Failed to clear credentials:', error);
+      }
+    });
+  }
+
   extractBtn.addEventListener('click', async () => {
     extractBtn.disabled = true;
     status.className = 'status info';

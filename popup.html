@@ -110,13 +110,30 @@
     <label style="display: block; font-size: 12px; margin-bottom: 5px; color: #666;">API Token:</label>
     <input type="password" id="tokenInput" placeholder="Enter your Jira API token"
       style="width: 100%; padding: 8px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;">
-    <div style="display: flex; gap: 10px;">
+    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
       <button id="saveSettingsBtn" class="button" style="flex: 1;">Save</button>
       <button id="testCredentialsBtn" class="button" style="flex: 1; background-color: #059669;">Test</button>
+      <button id="clearCredentialsBtn" class="button" style="flex: 1; background-color: #dc2626;"
+        title="Remove saved credentials">Clear</button>
+    </div>
+    <div style="display: flex; gap: 10px;">
       <button id="cancelSettingsBtn" class="button" style="flex: 1; background-color: #6b7280;">Cancel</button>
     </div>
+
     <div id="settingsStatus" class="status" style="margin-top: 15px;"></div>
-    <div class="info-text" style="margin-top: 15px; font-size: 11px;">
+
+    <div class="info-text"
+      style="margin-top: 15px; font-size: 11px; text-align: left; background: #f3f4f6; padding: 10px; border-radius: 4px;">
+      <strong>Two Ways to Use:</strong>
+      <ul style="margin: 5px 0 0 0; padding-left: 15px;">
+        <li style="margin-bottom: 4px;"><strong>With API (Recommended):</strong> Enter Email & Token. Enables background
+          downloads and better reliability.</li>
+        <li><strong>Without API:</strong> Leave fields empty. Uses your active browser login (session). Good for quick
+          extraction, but attachments might be limited.</li>
+      </ul>
+    </div>
+
+    <div class="info-text" style="margin-top: 10px; font-size: 11px;">
       <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" style="color: #0052CC;">Get
         your API token</a>
     </div>
