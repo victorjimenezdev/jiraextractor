@@ -206,6 +206,139 @@
     return fields;
   }
 
+  // Extract ALL visible custom fields from the DOM
+  function extractAllCustomFieldsFromDOM() {
+    const fields = [];
+    const seenLabels = new Set();
+
+    // 1. Rich Text Fields
+    const richTextFields = extractRichTextFields();
+    richTextFields.forEach(field => {
+      fields.push(field);
+      seenLabels.add(field.label.toLowerCase());
+    });
+
+    // 2. Standard Fields (non-rich text)
+    // Jira's DOM structure varies, but fields often use data-testid attributes
+
+    // Strategy A: Find by common container test-ids
+    const fieldContainers = document.querySelectorAll('[data-testid^="issue.views.field."]');
+
+    fieldContainers.forEach(container => {
+      const testId = container.getAttribute('data-testid') || '';
+
+      // Skip if it's rich text (already handled)
+      if (testId.includes('.rich-text.')) return;
+
+      // Extract field key/name from test-id
+      // Format: issue.views.field.status, issue.views.field.priority, etc.
+      const match = testId.match(/issue\\.views\\.field\\.(.+)/);
+      if (!match || !match[1]) return;
+
+      const fieldKey = match[1];
+
+      // Skip standard fields we already extract explicitly
+      const skipKeys = ['status', 'priority', 'assignee', 'reporter', 'issuetype', 'labels', 'components', 'fixversions', 'versions', 'description', 'summary'];
+      if (skipKeys.includes(fieldKey)) return;
+
+      // Find label
+      let label = findFieldLabel(fieldKey, container);
+
+      // If no label found, try to infer from key or look for sibling label
+      if (!label) {
+        // Humanize key: customfield_10000 -> Customfield 10000 (fallback)
+        // or try to find a label element inside/near
+        label = fieldKey;
+      }
+
+      // Avoid duplicates
+      if (seenLabels.has(label.toLowerCase())) return;
+
+      // Extract Value
+      const value = extractFromRenderer(container).trim();
+
+      // Skip empty or "None" values
+      if (!value || value.toLowerCase() === 'none' || value === 'No value') return;
+
+      fields.push({
+        key: fieldKey,
+        label: label,
+        value: value
+      });
+      seenLabels.add(label.toLowerCase());
+    });
+
+    // Strategy B: Find generic field labels and values (fallback for custom fields without specific test-ids)
+    // Look for patterns like <dt>Label</dt><dd>Value</dd> or similar structures in sidebar
+    const commonLabels = document.querySelectorAll('h1, h2, h3, h4, h5, h6, strong, b, label, span[color="color.text.subtlest"]');
+
+    commonLabels.forEach(el => {
+      const text = (el.textContent || '').trim();
+
+      // Skip empty labels, known UI elements, or very long text
+      if (!text || text.length > 50 || seenLabels.has(text.toLowerCase())) return;
+
+      // Heuristic: Check if likely a field label
+      if (text.includes(':')) return; // Usually not field labels in modern Jira
+
+      // Try to find value container
+      // check next sibling, or parent's next sibling
+      let value = '';
+      let nextEl = el.nextElementSibling;
+
+      if (nextEl) {
+        value = extractFromRenderer(nextEl).trim();
+      } else if (el.parentElement) {
+        // Try parent's next sibling (common in flex layouts)
+        const parentNext = el.parentElement.nextElementSibling;
+        if (parentNext) {
+          value = extractFromRenderer(parentNext).trim();
+        }
+      }
+
+      // If value found and looks valid
+      if (value && value !== 'None' && value !== 'No value' && value.length < 500) {
+        fields.push({
+          key: `custom_${text.replace(/\s+/g, '_').toLowerCase()}`,
+          label: text,
+          value: value
+        });
+        seenLabels.add(text.toLowerCase());
+      }
+    });
+
+    return fields;
+  }
+
+  // Extract specific QA Bugs field from DOM
+  function extractQABugsFromDOM() {
+    // Try by Test ID first (most reliable)
+    const qaBugsField = document.querySelector('[data-testid="issue.views.field.rich-text.customfield_10207"]');
+    if (qaBugsField) {
+      return extractFromRenderer(qaBugsField).trim();
+    }
+
+    // Fallback: finding by label "QA Bugs"
+    // This is trickier as structure varies, but often it's a label followed by value
+    const labels = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6, strong, b, label, span'));
+    const qaLabel = labels.find(el => {
+      const text = (el.textContent || '').trim().toLowerCase();
+      return text === 'qa bugs' || text === 'qa_bugs' || text === 'qa-bugs';
+    });
+
+    if (qaLabel) {
+      // Try to find the content container relative to the label
+      // Usually it's a sibling or in a parent container
+      // This is a best-effort heuristic
+      let container = qaLabel.closest('[data-testid^="issue.views.field"]');
+      if (container) {
+        return extractFromRenderer(container).replace(/QA Bugs/i, '').trim();
+      }
+    }
+
+    return '';
+  }
+
   // Extract checklists/todo lists
   async function waitForChecklistElements(maxWaitMs = 4000, root = document) {
     const selectors = [
@@ -1940,6 +2073,8 @@
       const attachments = extractAttachments();
       const commentAttachments = extractAttachmentsFromComments();
       const images = extractImages();
+      const qaBugs = extractQABugsFromDOM();
+      const allCustomFields = extractAllCustomFieldsFromDOM();
 
       // Combine attachments from main section, comments, and images
       // Remove duplicates by URL
@@ -2066,7 +2201,8 @@
         url: currentUrl,
         extractedAt: new Date().toISOString(),
         description: description,
-        customFields: customFields,
+        customFields: allCustomFields,
+        qaBugs: qaBugs,
         comments: comments,
         checklists: checklists,
         attachments: attachmentPaths
@@ -2160,11 +2296,30 @@
     const extractedAt = escapePipe(ticketData.extractedAt || '');
     lines.push(`H|${ticketKey}|${ticketTitle}|${ticketUrl}|${extractedAt}`);
 
-    // Description block (only if description is non-empty)
-    if (ticketData.description && ticketData.description.trim()) {
+    // Description block (only if description or custom fields are non-empty)
+    let fullDescription = ticketData.description || '';
+
+    // Append QA Bugs if available
+    if (ticketData.qaBugs && ticketData.qaBugs.trim()) {
+      fullDescription += '\n\n<h3>QA Bugs</h3>\n' + ticketData.qaBugs;
+    }
+
+    // Append other custom fields
+    if (ticketData.customFields && ticketData.customFields.length > 0) {
+      fullDescription += '\n\n<h3>Custom Fields</h3>\n<ul>';
+      ticketData.customFields.forEach(field => {
+        // Skip QA Bugs if it's already added separately
+        if (field.key === 'customfield_10207' || field.label === 'QA Bugs') return;
+
+        fullDescription += `<li><strong>${field.label}:</strong> ${field.value}</li>`;
+      });
+      fullDescription += '</ul>';
+    }
+
+    if (fullDescription && fullDescription.trim()) {
       lines.push('D<<');
       // Normalize newlines - keep as-is in block format
-      const desc = ticketData.description.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const desc = fullDescription.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
       lines.push(desc);
       lines.push('>>');
     }

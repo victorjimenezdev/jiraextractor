@@ -1,36 +1,6 @@
 // Background service worker for handling downloads
 const MAX_CHUNK_SIZE = 64 * 1024; // Keep streamed messages well under Chrome's message size limit
 
-// Set up declarativeNetRequest rules to strip Authorization header from media domains
-// This prevents CORS Preflight failures on S3 signed URLs which don't need auth but reject complex requests
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: [1], // Clear any existing rule with this ID
-    addRules: [
-      {
-        id: 1,
-        priority: 1,
-        action: {
-          type: 'modifyHeaders',
-          requestHeaders: [
-            { header: 'Authorization', operation: 'remove' }
-          ]
-        },
-        condition: {
-          urlFilter: 'media.atlassian.com', // Substring match to catch api.media.atlassian.com, etc.
-          resourceTypes: ['xmlhttprequest', 'other']
-        }
-      }
-    ]
-  }, () => {
-    if (chrome.runtime.lastError) {
-      console.error('Failed to update dynamic rules:', chrome.runtime.lastError);
-    } else {
-      console.log('Dynamic rules updated: Authorization header will be stripped for *media.atlassian.com*');
-    }
-  });
-});
-
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background received message:', request.action);
 

@@ -1,137 +1,176 @@
 // Jira API utility functions for REST API v3
 // Uses Basic Authentication with email and API token
 
-class JiraAPI {
-  constructor(email, apiToken, baseUrl) {
-    this.email = email;
-    this.apiToken = apiToken;
-    this.baseUrl = baseUrl;
+if (typeof JiraAPI === 'undefined') {
+  class JiraAPI {
+    constructor(email, apiToken, baseUrl) {
+      this.email = email;
+      this.apiToken = apiToken;
+      this.baseUrl = baseUrl;
 
-    // Create base64 encoded credentials for Basic Auth
-    const credentials = `${email}:${apiToken}`;
-    this.authHeader = `Basic ${btoa(credentials)}`;
-  }
+      // Create base64 encoded credentials for Basic Auth
+      const credentials = `${email}:${apiToken}`;
+      this.authHeader = `Basic ${btoa(credentials)}`;
+    }
 
-  // Make API request
-  async request(endpoint, options = {}) {
-    const url = `${this.baseUrl}/rest/api/3${endpoint}`;
+    // Make API request
+    async request(endpoint, options = {}) {
+      const url = `${this.baseUrl}/rest/api/3${endpoint}`;
 
-    const defaultOptions = {
-      headers: {
-        'Authorization': this.authHeader,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...options.headers
-      },
-      ...options
-    };
+      const defaultOptions = {
+        headers: {
+          'Authorization': this.authHeader,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...options.headers
+        },
+        ...options
+      };
 
-    try {
-      const response = await fetch(url, defaultOptions);
+      try {
+        const response = await fetch(url, defaultOptions);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Jira API error: ${response.status} ${response.statusText} - ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Jira API error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Jira API request failed: ${error.message}`);
+      }
+    }
+
+    // Get ticket by key (e.g., "PROJ-123")
+    async getIssue(issueKey, fields = null) {
+      // Default fields to fetch - usage of *all ensures we get custom fields
+      // We also need "names" expansion to map customfield_XXXX to readable names
+      const queryParams = {
+        expand: 'renderedFields,names',
+        fields: fields || ['*all']
+      };
+
+      const queryString = Object.entries(queryParams)
+        .map(([key, val]) => `${key}=${encodeURIComponent(Array.isArray(val) ? val.join(',') : val)}`)
+        .join('&');
+
+      return this.request(`/issue/${issueKey}?${queryString}`);
+    }
+
+    // Get comments for an issue
+    async getComments(issueKey) {
+      const data = await this.request(`/issue/${issueKey}/comment?expand=renderedBody`);
+      return data.comments || [];
+    }
+
+    // Get attachments for an issue
+    async getAttachments(issueKey) {
+      const issue = await this.getIssue(issueKey, ['attachment']);
+      return issue.fields?.attachment || [];
+    }
+
+    // Get full ticket data including all fields
+    async getFullTicket(issueKey) {
+      const issue = await this.getIssue(issueKey);
+      const comments = await this.getComments(issueKey);
+
+      // Extract all custom fields that have values
+      const customFields = [];
+      if (issue.names && issue.fields) {
+        Object.keys(issue.names).forEach(key => {
+          // Check if it's a custom field (starts with customfield_)
+          if (key.startsWith('customfield_')) {
+            const value = issue.renderedFields?.[key] || issue.fields[key];
+
+            // Only include if it has a value
+            if (value !== null && value !== undefined && value !== '') {
+              // Filter out empty complex objects
+              if (typeof value === 'object' && Object.keys(value).length === 0) return;
+
+              customFields.push({
+                id: key,
+                name: issue.names[key],
+                value: value,
+                // Keep original raw value if needed, but rendered is usually better for display
+                originalValue: issue.fields[key]
+              });
+            }
+          }
+        });
       }
 
-      return await response.json();
-    } catch (error) {
-      throw new Error(`Jira API request failed: ${error.message}`);
-    }
-  }
-
-  // Get ticket by key (e.g., "PROJ-123")
-  async getIssue(issueKey, fields = null) {
-    // Default fields to fetch
-    const defaultFields = [
-      'summary', 'description', 'status', 'assignee', 'reporter',
-      'created', 'updated', 'project', 'issuetype', 'priority',
-      'attachment', 'comment'
-    ];
-
-    const fieldsParam = fields ? fields.join(',') : defaultFields.join(',');
-    return await this.request(`/issue/${issueKey}?fields=${fieldsParam}&expand=renderedFields`);
-  }
-
-  // Get comments for an issue
-  async getComments(issueKey) {
-    const data = await this.request(`/issue/${issueKey}/comment?expand=renderedBody`);
-    return data.comments || [];
-  }
-
-  // Get attachments for an issue
-  async getAttachments(issueKey) {
-    const issue = await this.getIssue(issueKey, ['attachment']);
-    return issue.fields?.attachment || [];
-  }
-
-  // Get full ticket data including all fields
-  async getFullTicket(issueKey) {
-    const issue = await this.getIssue(issueKey);
-    const comments = await this.getComments(issueKey);
-
-    return {
-      key: issue.key,
-      id: issue.id,
-      self: issue.self,
-      summary: issue.fields.summary,
-      description: issue.fields.description,
-      renderedDescription: issue.renderedFields?.description || '',
-      status: issue.fields.status?.name || '',
-      assignee: issue.fields.assignee ? {
-        name: issue.fields.assignee.displayName,
-        email: issue.fields.assignee.emailAddress,
-        avatar: issue.fields.assignee.avatarUrls?.['48x48']
-      } : null,
-      reporter: issue.fields.reporter ? {
-        name: issue.fields.reporter.displayName,
-        email: issue.fields.reporter.emailAddress,
-        avatar: issue.fields.reporter.avatarUrls?.['48x48']
-      } : null,
-      created: issue.fields.created,
-      updated: issue.fields.updated,
-      project: issue.fields.project?.name || '',
-      issueType: issue.fields.issuetype?.name || '',
-      priority: issue.fields.priority?.name || '',
-      attachments: (issue.fields.attachment || []).map(att => ({
+      // Process attachments
+      const attachments = (issue.fields.attachment || []).map(att => ({
         id: att.id, // This is the attachment ID (e.g., "78403")
         filename: att.filename,
         size: att.size,
         mimeType: att.mimeType,
         content: att.content, // API endpoint URL
         thumbnail: att.thumbnail
-      })),
-      comments: comments.map(comment => ({
-        id: comment.id,
-        author: comment.author.displayName,
-        authorEmail: comment.author.emailAddress,
-        body: comment.body,
-        renderedBody: comment.renderedBody || '',
-        created: comment.created,
-        updated: comment.updated
-      }))
-    };
-  }
+      }));
 
-  // Helper to extract base URL from Jira page URL
-  static extractBaseUrl(url) {
-    try {
-      const urlObj = new URL(url);
-      return `${urlObj.protocol}//${urlObj.hostname}`;
-    } catch (error) {
-      return null;
+      return {
+        key: issue.key,
+        id: issue.id,
+        self: issue.self,
+        summary: issue.fields.summary,
+        description: issue.fields.description,
+        renderedDescription: issue.renderedFields?.description || '',
+        status: issue.fields.status?.name || '',
+        assignee: issue.fields.assignee ? {
+          name: issue.fields.assignee.displayName,
+          email: issue.fields.assignee.emailAddress,
+          avatar: issue.fields.assignee.avatarUrls?.['48x48']
+        } : null,
+        reporter: issue.fields.reporter ? {
+          name: issue.fields.reporter.displayName,
+          email: issue.fields.reporter.emailAddress,
+          avatar: issue.fields.reporter.avatarUrls?.['48x48']
+        } : null,
+        created: issue.fields.created,
+        updated: issue.fields.updated,
+        project: issue.fields.project?.name || '',
+        issueType: issue.fields.issuetype?.name || '',
+        priority: issue.fields.priority?.name || '',
+        attachments: attachments,
+        comments: comments.map(comment => ({
+          id: comment.id,
+          author: comment.author?.displayName,
+          authorEmail: comment.author?.emailAddress,
+          body: comment.renderedBody || comment.body, // Use rendered body for comments too if available
+          created: comment.created,
+          updated: comment.updated
+        })),
+        // specific QA bugs field kept for backward compatibility if needed, 
+        // but it will also be in customFields now
+        qaBugs: issue.renderedFields?.customfield_10207 || '',
+        customFields: customFields
+      };
+    }
+
+    // Helper to extract base URL from Jira page URL
+    static extractBaseUrl(url) {
+      try {
+        const urlObj = new URL(url);
+        return `${urlObj.protocol}//${urlObj.hostname}`;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    // Helper to extract issue key from URL
+    static extractIssueKey(url) {
+      const browseMatch = url.match(/\/browse\/([A-Z]+-\d+)/i);
+      if (browseMatch && browseMatch[1]) {
+        return browseMatch[1];
+      }
+      const pathMatch = url.match(/([A-Z]{2,}\d+-\d+)/i);
+      return pathMatch ? pathMatch[1] : null;
     }
   }
 
-  // Helper to extract issue key from URL
-  static extractIssueKey(url) {
-    const browseMatch = url.match(/\/browse\/([A-Z]+-\d+)/i);
-    if (browseMatch && browseMatch[1]) {
-      return browseMatch[1];
-    }
-    const pathMatch = url.match(/([A-Z]{2,}\d+-\d+)/i);
-    return pathMatch ? pathMatch[1] : null;
-  }
+  // Attach to window to ensure global availability
+  window.JiraAPI = JiraAPI;
 }
 
 // Helper function to clean HTML from Jira's rendered content
@@ -182,7 +221,6 @@ function cleanJiraHtml(html) {
         }
       }
     }
-
     return result;
   }
 
@@ -202,7 +240,13 @@ function convertApiDataToExtractorFormat(apiData, baseUrl) {
     url: `${baseUrl}/browse/${apiData.key}`,
     extractedAt: new Date().toISOString(),
     description: cleanJiraHtml(apiData.renderedDescription || apiData.description || ''),
-    customFields: [], // API doesn't return custom fields by default, would need to fetch separately
+    qaBugs: cleanJiraHtml(apiData.qaBugs || ''),
+    customFields: (apiData.customFields || []).map(cf => ({
+      key: cf.id,
+      label: cf.name,
+      value: typeof cf.value === 'string' ? cleanJiraHtml(cf.value) : cf.value,
+      originalValue: cf.originalValue
+    })),
     comments: (apiData.comments || []).map(comment => ({
       id: comment.id,
       author: comment.author || 'Unknown',
@@ -235,8 +279,6 @@ function convertApiDataToExtractorFormat(apiData, baseUrl) {
         id: idx + 1,
         name: att.filename || `attachment-${idx + 1}`,
         url: url,
-        size: att.size || 0,
-        mimeType: att.mimeType || '',
         size: att.size || 0,
         mimeType: att.mimeType || '',
         attachmentId: att.id, // Store original ID for reference
